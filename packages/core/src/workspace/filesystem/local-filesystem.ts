@@ -124,6 +124,22 @@ export class LocalFilesystem extends MastraFilesystem {
   }
 
   /**
+   * Whether file operations are restricted to stay within basePath.
+   *
+   * When `true` (default), absolute paths that don't fall within basePath are
+   * treated as virtual paths (resolved relative to basePath). When `false`,
+   * absolute paths are treated as real filesystem paths.
+   *
+   * **Important:** `contained: false` is incompatible with CompositeFilesystem
+   * mounts because CompositeFilesystem strips mount prefixes and produces
+   * absolute paths (e.g. `/file.txt`), which a non-contained filesystem
+   * interprets as the real host path instead of `basePath/file.txt`.
+   */
+  get contained(): boolean {
+    return this._contained;
+  }
+
+  /**
    * Current set of additional allowed paths (absolute, resolved).
    * These paths are permitted beyond basePath when containment is enabled.
    */

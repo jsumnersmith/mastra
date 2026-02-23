@@ -2,10 +2,13 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { IsolationUnavailableError } from './errors';
 import { LocalSandbox } from './local-sandbox';
+import * as gcsMod from './mounts/gcs';
+import * as platformMod from './mounts/platform';
+import * as s3Mod from './mounts/s3';
 import { detectIsolation, isIsolationAvailable, isSeatbeltAvailable, isBwrapAvailable } from './native-sandbox';
 
 describe('LocalSandbox', () => {
@@ -749,6 +752,253 @@ describe('LocalSandbox', () => {
       expect(result.success).toBe(true);
 
       await bwrapSandbox._destroy();
+    });
+  });
+
+  // ===========================================================================
+  // Mount Operations
+  // ===========================================================================
+  describe('mount operations', () => {
+    let mountSandbox: LocalSandbox;
+    let mountDir: string;
+    // All mount paths use /tmp so they work on macOS (no /mnt)
+    let mountTargetBase: string;
+
+    function makeMockFs(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'test-s3',
+        provider: 's3',
+        getMountConfig: () => ({ type: 's3' as const, bucket: 'my-bucket', region: 'us-east-1' }),
+        readFile: vi.fn(),
+        writeFile: vi.fn(),
+        deleteFile: vi.fn(),
+        listFiles: vi.fn(),
+        stat: vi.fn(),
+        exists: vi.fn(),
+        getInstructions: vi.fn(),
+        init: vi.fn(),
+        ...overrides,
+      };
+    }
+
+    beforeEach(async () => {
+      mountDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mastra-mount-test-'));
+      mountTargetBase = await fs.mkdtemp(path.join(os.tmpdir(), 'mastra-mount-target-'));
+      mountSandbox = new LocalSandbox({ workingDirectory: mountDir });
+      await mountSandbox._start();
+    });
+
+    afterEach(async () => {
+      vi.restoreAllMocks();
+      try {
+        // Clear active mount paths so destroy doesn't try to unmount
+        // (mocks are already restored at this point)
+        (mountSandbox as any)._activeMountPaths.clear();
+        mountSandbox.mounts.clear();
+        await mountSandbox._destroy();
+      } catch {
+        // Ignore
+      }
+      try {
+        await fs.rm(mountDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+      try {
+        await fs.rm(mountTargetBase, { recursive: true, force: true });
+      } catch {
+        // Ignore
+      }
+    });
+
+    it('should have a MountManager (because mount() is defined)', () => {
+      expect(mountSandbox.mounts).toBeDefined();
+    });
+
+    it('should dispatch to mountS3 for S3 config', async () => {
+      const mountS3Spy = vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+
+      const mountPath = path.join(mountTargetBase, 's3-data');
+      const result = await mountSandbox.mount(makeMockFs() as any, mountPath);
+
+      expect(result.success).toBe(true);
+      expect(result.mountPath).toBe(mountPath);
+      expect(mountS3Spy).toHaveBeenCalledTimes(1);
+      expect(mountS3Spy.mock.calls[0]![0]).toBe(mountPath);
+    });
+
+    it('should dispatch to mountGCS for GCS config', async () => {
+      const mountGCSSpy = vi.spyOn(gcsMod, 'mountGCS').mockResolvedValue(undefined);
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+
+      const mountPath = path.join(mountTargetBase, 'gcs-data');
+      const result = await mountSandbox.mount(
+        makeMockFs({
+          id: 'test-gcs',
+          provider: 'gcs',
+          getMountConfig: () => ({ type: 'gcs' as const, bucket: 'my-gcs-bucket' }),
+        }) as any,
+        mountPath,
+      );
+
+      expect(result.success).toBe(true);
+      expect(mountGCSSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reject invalid mount paths', async () => {
+      const mockFs = makeMockFs();
+
+      await expect(mountSandbox.mount(mockFs as any, 'relative/path')).rejects.toThrow('Invalid mount path');
+      await expect(mountSandbox.mount(mockFs as any, '/tmp/bad path')).rejects.toThrow('Invalid mount path');
+    });
+
+    it('should return error for unsupported mount type', async () => {
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+
+      const mountPath = path.join(mountTargetBase, 'ftp-data');
+      const result = await mountSandbox.mount(
+        makeMockFs({
+          id: 'test-unknown',
+          provider: 'unknown',
+          getMountConfig: () => ({ type: 'ftp' }),
+        }) as any,
+        mountPath,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Unsupported mount type');
+    });
+
+    it('should return error when filesystem has no mount config', async () => {
+      const mountPath = path.join(mountTargetBase, 'local');
+      const result = await mountSandbox.mount(
+        makeMockFs({
+          id: 'test-no-config',
+          provider: 'local',
+          getMountConfig: undefined,
+        }) as any,
+        mountPath,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('does not provide a mount config');
+    });
+
+    it('should reject non-empty directories', async () => {
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+
+      // Create a non-empty directory
+      const nonEmptyDir = path.join(mountTargetBase, 'nonempty');
+      await fs.mkdir(nonEmptyDir, { recursive: true });
+      await fs.writeFile(path.join(nonEmptyDir, 'existing.txt'), 'content');
+
+      const result = await mountSandbox.mount(makeMockFs() as any, nonEmptyDir);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not empty');
+    });
+
+    it('should unmount and clean up marker files', async () => {
+      vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+      vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
+
+      const mountPath = path.join(mountTargetBase, 's3-cleanup');
+      const mountResult = await mountSandbox.mount(makeMockFs() as any, mountPath);
+      expect(mountResult.success).toBe(true);
+
+      await mountSandbox.unmount(mountPath);
+
+      expect(mountSandbox.mounts.has(mountPath)).toBe(false);
+    });
+
+    it('should unmount all mounts on stop()', async () => {
+      vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+      const unmountSpy = vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
+
+      const mountPath = path.join(mountTargetBase, 'stop-test');
+      await mountSandbox.mount(makeMockFs() as any, mountPath);
+
+      await mountSandbox._stop();
+
+      expect(unmountSpy).toHaveBeenCalled();
+    });
+
+    it('should unmount all mounts on destroy()', async () => {
+      vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+      const unmountSpy = vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
+
+      const mountPath = path.join(mountTargetBase, 'destroy-test');
+      await mountSandbox.mount(makeMockFs() as any, mountPath);
+
+      await mountSandbox._destroy();
+
+      expect(unmountSpy).toHaveBeenCalled();
+      expect(mountSandbox.mounts.entries.size).toBe(0);
+    });
+
+    it('should add mount path to seatbelt isolation readWritePaths', async () => {
+      if (os.platform() !== 'darwin') return;
+
+      vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+      vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
+
+      const seatbeltSandbox = new LocalSandbox({
+        workingDirectory: mountDir,
+        isolation: 'seatbelt',
+      });
+      await seatbeltSandbox._start();
+
+      const mountPath = path.join(mountTargetBase, 'seatbelt-test');
+      await seatbeltSandbox.mount(makeMockFs() as any, mountPath);
+
+      const info = await seatbeltSandbox.getInfo();
+      const isoConfig = info.metadata?.isolationConfig as { readWritePaths?: string[] } | undefined;
+      expect(isoConfig?.readWritePaths).toEqual(expect.arrayContaining([mountPath]));
+
+      // Clear before destroy to avoid real unmount attempts
+      (seatbeltSandbox as any)._activeMountPaths.clear();
+      seatbeltSandbox.mounts.clear();
+      await seatbeltSandbox._destroy();
+    });
+
+    it('should handle mount failure gracefully', async () => {
+      vi.spyOn(s3Mod, 'mountS3').mockRejectedValue(new Error('s3fs is not installed'));
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+
+      const mountPath = path.join(mountTargetBase, 'fail-test');
+      const result = await mountSandbox.mount(makeMockFs() as any, mountPath);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('s3fs is not installed');
+    });
+
+    it('should skip mount if already mounted with matching config', async () => {
+      const mountS3Spy = vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(true);
+      vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
+
+      const mountPath = path.join(mountTargetBase, 'existing');
+      const config = { type: 's3' as const, bucket: 'my-bucket', region: 'us-east-1' };
+
+      // Write a matching marker file
+      const markerFilename = mountSandbox.mounts.markerFilename(mountPath);
+      const configHash = mountSandbox.mounts.computeConfigHash(config);
+      const markerDir = '/tmp/.mastra-mounts';
+      await fs.mkdir(markerDir, { recursive: true });
+      await fs.writeFile(path.join(markerDir, markerFilename), `${mountPath}|${configHash}`);
+
+      try {
+        const result = await mountSandbox.mount(makeMockFs({ getMountConfig: () => config }) as any, mountPath);
+        expect(result.success).toBe(true);
+        // Should NOT have called mountS3 since it was already mounted with matching config
+        expect(mountS3Spy).not.toHaveBeenCalled();
+      } finally {
+        await fs.unlink(path.join(markerDir, markerFilename)).catch(() => {});
+      }
     });
   });
 });
