@@ -1,5 +1,16 @@
 # @mastra/client-js
 
+## 1.7.0-alpha.0
+
+### Minor Changes
+
+- Added `StoredPromptBlock` resource to `MastraClient` with full CRUD operations — create, read, update, delete, list, and version management for prompt blocks. New types include `StoredPromptBlockResponse`, `CreateStoredPromptBlockParams`, `UpdateStoredPromptBlockParams`, and `PromptBlockVersionResponse`. ([#13351](https://github.com/mastra-ai/mastra/pull/13351))
+
+### Patch Changes
+
+- Updated dependencies [[`24284ff`](https://github.com/mastra-ai/mastra/commit/24284ffae306ddf0ab83273e13f033520839ef40), [`f5097cc`](https://github.com/mastra-ai/mastra/commit/f5097cc8a813c82c3378882c31178320cadeb655), [`2b40831`](https://github.com/mastra-ai/mastra/commit/2b40831dcca2275c9570ddf09b7f25ba3e8dc7fc)]:
+  - @mastra/core@1.7.0-alpha.0
+
 ## 1.6.0
 
 ### Minor Changes

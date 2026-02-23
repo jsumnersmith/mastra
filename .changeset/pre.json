@@ -113,5 +113,17 @@
     "@mastra/gcs": "0.1.1",
     "@mastra/s3": "0.2.0"
   },
-  "changesets": []
+  "changesets": [
+    "calm-monkeys-find",
+    "curly-jeans-run",
+    "eighty-geese-cut",
+    "fast-jars-eat",
+    "fix-stopwhen-tool-results",
+    "prompt-block-client",
+    "prompt-block-playground",
+    "prompt-block-storage",
+    "slimy-geckos-play",
+    "sweet-stars-drum",
+    "yummy-waves-battle"
+  ]
 }

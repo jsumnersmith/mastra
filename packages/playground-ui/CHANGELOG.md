@@ -1,5 +1,35 @@
 # @mastra/playground-ui
 
+## 14.0.0-alpha.0
+
+### Minor Changes
+
+- Added prompt block management to the Playground. You can now create, edit, version, and publish reusable prompt blocks from a dedicated "Prompts" tab in the sidebar. ([#13351](https://github.com/mastra-ai/mastra/pull/13351))
+
+  **Prompt block editor features:**
+  - Draft/published versioning with version history dropdown
+  - Variables editor (JSON schema) for defining template variables
+  - Display conditions for conditional block rendering
+  - Variable highlighting in the content editor
+
+  **Agent instruction block improvements:**
+  - Added support for referencing saved prompt blocks in agent instructions via a new "Reference saved prompt block" option in the add block dropdown
+  - Fixed save/publish button behavior — "Save" is now disabled when no changes have been made, and "Publish" is only enabled when there are unpublished drafts
+
+- Added new Chip component and expanded ItemList with Cell, LinkCell, IdCell, DateCell, and VersionCell sub-components. Improved dataset version comparison page with inline navigation links, version status indicators, and a refreshed row layout. ([#13399](https://github.com/mastra-ai/mastra/pull/13399))
+
+### Patch Changes
+
+- Improved comparison selection behavior: selecting a third item now replaces the most recent selection instead of being blocked. Applies to dataset version, item version, and dataset item comparison flows. ([#13406](https://github.com/mastra-ai/mastra/pull/13406))
+
+- Fixed publish button in agent CMS to be disabled when no draft exists, preventing unnecessary error toasts. Also fixed stale agent data after saving a draft or publishing by invalidating the agent query cache. Fixed tool count in the CMS sidebar and tools page to correctly include integration tools. ([#13325](https://github.com/mastra-ai/mastra/pull/13325))
+
+- Updated dependencies [[`24284ff`](https://github.com/mastra-ai/mastra/commit/24284ffae306ddf0ab83273e13f033520839ef40), [`f5097cc`](https://github.com/mastra-ai/mastra/commit/f5097cc8a813c82c3378882c31178320cadeb655), [`2b40831`](https://github.com/mastra-ai/mastra/commit/2b40831dcca2275c9570ddf09b7f25ba3e8dc7fc), [`2b40831`](https://github.com/mastra-ai/mastra/commit/2b40831dcca2275c9570ddf09b7f25ba3e8dc7fc)]:
+  - @mastra/core@1.7.0-alpha.0
+  - @mastra/client-js@1.7.0-alpha.0
+  - @mastra/ai-sdk@1.0.5
+  - @mastra/react@0.2.6-alpha.0
+
 ## 13.0.0
 
 ### Minor Changes

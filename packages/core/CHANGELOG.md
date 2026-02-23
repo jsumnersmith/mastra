@@ -1,5 +1,17 @@
 # @mastra/core
 
+## 1.7.0-alpha.0
+
+### Minor Changes
+
+- Prompt blocks can now define their own variables schema (`requestContextSchema`), allowing you to create reusable prompt blocks with typed variable placeholders. The server now correctly computes and returns draft/published status for prompt blocks. Existing databases are automatically migrated when upgrading. ([#13351](https://github.com/mastra-ai/mastra/pull/13351))
+
+### Patch Changes
+
+- Fixed agents-as-tools failing with OpenAI when using the model router. The auto-injected `resumeData` field (from `z.any()`) produced a JSON Schema without a `type` key, which OpenAI rejects. Tool schemas are now post-processed to ensure all properties have valid type information. ([#13326](https://github.com/mastra-ai/mastra/pull/13326))
+
+- Fixed `stopWhen` callback receiving empty `toolResults` on steps. `step.toolResults` now correctly reflects the tool results present in `step.content`. ([#13319](https://github.com/mastra-ai/mastra/pull/13319))
+
 ## 1.6.0
 
 ### Minor Changes
